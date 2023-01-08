@@ -1,4 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0
+dtstree	:= $(srctree)/$(src)
+
+vendor  := $(dtstree)/vendor
+ifeq "$(wildcard $(vendor)/Makefile)" ""
 subdir-y += actions
 subdir-y += allwinner
 subdir-y += altera
@@ -33,6 +37,9 @@ subdir-y += zte
 
 subdir-y := samsung
 
+else
+	subdir-y += vendor
+endif
 # FIXME: blocked by Samsung to prevent sporadic build failure
 #dtstree	:= $(srctree)/$(src)
 #vendor  := $(dtstree)/vendor
