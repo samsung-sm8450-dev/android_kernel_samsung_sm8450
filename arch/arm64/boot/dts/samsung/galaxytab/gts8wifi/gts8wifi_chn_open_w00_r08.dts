@@ -9877,7 +9877,7 @@
 			pogo_touchpad {
 				compatible = "stm,touchpad";
 				touchpad,max_coords = <0x578 0x324>;
-				touchpad,invert = <0x00 0x01 0x01>;
+				touchpad,invert = <0x00 0x00 0x00>;
 			};
 
 			pogo_kpd {
