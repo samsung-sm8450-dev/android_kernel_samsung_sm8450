@@ -284,7 +284,7 @@ static int samsung_gamepad_input_mapping(struct hid_device *hdev,
 			samsung_kbd_mouse_map_key_clear(BTN_THUMBR);
 			break;
 		case 0x10:
-			samsung_kbd_mouse_map_key_clear(BTN_GAME);
+			samsung_kbd_mouse_map_key_clear(BTN_GAMEPAD);
 			break;
 		default:
 			return 0;
