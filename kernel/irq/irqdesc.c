@@ -676,11 +676,8 @@ int __handle_domain_irq(struct irq_domain *domain, unsigned int hwirq,
 	int ret = 0;
 
 #ifdef CONFIG_IRQ_DOMAIN
-	if (lookup) {
-		__irq_enter_raw();
+	if (lookup)
 		irq = irq_find_mapping(domain, hwirq);
-		__irq_exit_raw();
-	}
 #endif
 
 	/*

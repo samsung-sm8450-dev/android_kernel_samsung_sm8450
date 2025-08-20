@@ -2,7 +2,7 @@
 /*
  * Universal Flash Storage Host controller driver Core
  * Copyright (C) 2011-2013 Samsung India Software Operations
- * Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
  * Authors:
  *	Santosh Yaraganavi <santosh.sy@samsung.com>
@@ -51,7 +51,7 @@
 #define QUERY_REQ_TIMEOUT 1500 /* 1.5 seconds */
 
 /* Task management command timeout */
-#define TM_CMD_TIMEOUT	100 /* msecs */
+#define TM_CMD_TIMEOUT	300 /* msecs */
 
 /* maximum number of retries for a general UIC command  */
 #define UFS_UIC_COMMAND_RETRIES 3
@@ -82,6 +82,9 @@
 
 /* Polling time to wait for fDeviceInit */
 #define FDEVICEINIT_COMPL_TIMEOUT 1500 /* millisecs */
+
+/* Maximum number that the hardware allows for request. */
+#define UFSHCD_MAX_HW_SECTORS 2048 /* 1 MB */
 
 #define ufshcd_toggle_vreg(_dev, _vreg, _on)				\
 	({                                                              \
@@ -145,7 +148,10 @@ enum {
 	UFSHCD_STATE_EH_SCHEDULED_NON_FATAL,
 };
 
-
+/* UFSHCD error handling flags */
+enum {
+	UFSHCD_EH_IN_PROGRESS = (1 << 0),
+};
 
 /* UFSHCD UIC layer error flags */
 enum {
@@ -158,6 +164,12 @@ enum {
 	UFSHCD_UIC_PA_GENERIC_ERROR = (1 << 6), /* Generic PA error */
 };
 
+#define ufshcd_set_eh_in_progress(h) \
+	((h)->eh_flags |= UFSHCD_EH_IN_PROGRESS)
+#define ufshcd_eh_in_progress(h) \
+	((h)->eh_flags & UFSHCD_EH_IN_PROGRESS)
+#define ufshcd_clear_eh_in_progress(h) \
+	((h)->eh_flags &= ~UFSHCD_EH_IN_PROGRESS)
 
 struct ufs_pm_lvl_states ufs_pm_lvl_states[] = {
 	{UFS_ACTIVE_PWR_MODE, UIC_LINK_ACTIVE_STATE},
@@ -2096,7 +2108,6 @@ void ufshcd_send_command(struct ufs_hba *hba, unsigned int task_tag)
 	}
 	/* Make sure that doorbell is committed immediately */
 	wmb();
-	trace_android_vh_ufs_send_command_post_change(hba, lrbp);
 }
 
 /**
@@ -2762,9 +2773,7 @@ static int ufshcd_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *cmd)
 	}
 	/* Make sure descriptors are ready before ringing the doorbell */
 	wmb();
-	trace_android_vh_ufs_perf_huristic_ctrl(hba, lrbp, &err);
-	if (err)
-		goto out;
+
 	ufshcd_send_command(hba, tag);
 out:
 	up_read(&hba->clk_scaling_lock);
@@ -2805,6 +2814,9 @@ ufshcd_clear_cmd(struct ufs_hba *hba, int tag)
 	err = ufshcd_wait_for_register(hba,
 			REG_UTP_TRANSFER_REQ_DOOR_BELL,
 			mask, ~mask, 1000, 1000);
+
+	if (!err && ufshcd_has_utrlcnr(hba))
+		ufshcd_writel(hba, 1UL << tag, REG_UTP_TRANSFER_REQ_LIST_COMPL);
 
 	return err;
 }
@@ -4028,8 +4040,7 @@ out:
 		ufshcd_enable_intr(hba, UIC_COMMAND_COMPL);
 	if (ret) {
 		dev_err(hba->dev,
-			"%s: Changing link power status failed (%d). Scheduling error handler\n",
-			__func__, ret);
+			"%s: Changing link power status failed (%d). Scheduling error handler\n", __func__, ret);
 		ufshcd_set_link_broken(hba);
 		ufshcd_schedule_eh_work(hba);
 	}
@@ -5077,6 +5088,7 @@ ufshcd_transfer_rsp_status(struct ufs_hba *hba, struct ufshcd_lrb *lrbp)
 			if (!hba->pm_op_in_progress &&
 			    !ufshcd_eh_in_progress(hba) &&
 			    ufshcd_is_exception_event(lrbp->ucd_rsp_ptr) &&
+			    scsi_host_in_recovery(hba->host) &&
 			    schedule_work(&hba->eeh_work)) {
 				/*
 				 * Prevent suspend once eeh_work is scheduled
@@ -5084,6 +5096,7 @@ ufshcd_transfer_rsp_status(struct ufs_hba *hba, struct ufshcd_lrb *lrbp)
 				 * and exception event handler.
 				 */
 				pm_runtime_get_noresume(hba->dev);
+				dev_info(hba->dev, "exception event reported\n");
 			}
 
 			if (scsi_status == SAM_STAT_GOOD)
@@ -5198,7 +5211,7 @@ static irqreturn_t ufshcd_uic_cmd_compl(struct ufs_hba *hba, u32 intr_status)
 }
 
 /* Release the resources allocated for processing a SCSI command. */
-void ufshcd_release_scsi_cmd(struct ufs_hba *hba,
+static void ufshcd_release_scsi_cmd(struct ufs_hba *hba,
 				    struct ufshcd_lrb *lrbp)
 {
 	struct scsi_cmnd *cmd = lrbp->cmd;
@@ -5209,7 +5222,6 @@ void ufshcd_release_scsi_cmd(struct ufs_hba *hba,
 	ufshcd_release(hba);
 	ufshcd_clk_scaling_update_busy(hba);
 }
-EXPORT_SYMBOL_GPL(ufshcd_release_scsi_cmd);
 
 /**
  * __ufshcd_transfer_req_compl - handle SCSI and query command completion
@@ -5230,13 +5242,9 @@ static void __ufshcd_transfer_req_compl(struct ufs_hba *hba,
 		lrbp->compl_time_stamp = ktime_get();
 		cmd = lrbp->cmd;
 		if (cmd) {
-			bool done = false;
 			if (unlikely(ufshcd_should_inform_monitor(hba, lrbp)))
 				ufshcd_update_monitor(hba, lrbp);
 			trace_android_vh_ufs_compl_command(hba, lrbp);
-			trace_android_vh_ufs_compl_rsp_check_done(hba, lrbp, &done);
-			if (done)
-				return;
 			ufshcd_add_command_trace(hba, index, "complete");
 			cmd->result = ufshcd_transfer_rsp_status(hba, lrbp);
 			ufshcd_release_scsi_cmd(hba, lrbp);
@@ -5564,9 +5572,14 @@ static void ufshcd_bkops_exception_event_handler(struct ufs_hba *hba)
 	if (curr_status < BKOPS_STATUS_PERF_IMPACT) {
 		dev_err(hba->dev, "%s: device raised urgent BKOPS exception for bkops status %d\n",
 				__func__, curr_status);
-		/* update the current status as the urgent bkops level */
-		hba->urgent_bkops_lvl = curr_status;
-		hba->is_urgent_bkops_lvl_checked = true;
+		/* 
+		 * SEC does not follow this policy that BKOPS is enabled for these events
+		 * update the current status as the urgent bkops level 
+		 */
+		//hba->urgent_bkops_lvl = curr_status;
+		//hba->is_urgent_bkops_lvl_checked = true;
+
+		goto out;
 	}
 
 enable_auto_bkops:
@@ -5803,13 +5816,11 @@ out:
 }
 
 /* Complete requests that have door-bell cleared */
-void ufshcd_complete_requests(struct ufs_hba *hba)
+static void ufshcd_complete_requests(struct ufs_hba *hba)
 {
 	ufshcd_trc_handler(hba, false);
 	ufshcd_tmc_handler(hba);
 }
-EXPORT_SYMBOL_GPL(ufshcd_complete_requests);
-
 
 /**
  * ufshcd_quirk_dl_nac_errors - This function checks if error handling is
@@ -5923,7 +5934,7 @@ static void ufshcd_clk_scaling_suspend(struct ufs_hba *hba, bool suspend)
 	}
 }
 
-void ufshcd_err_handling_prepare(struct ufs_hba *hba)
+static void ufshcd_err_handling_prepare(struct ufs_hba *hba)
 {
 	pm_runtime_get_sync(hba->dev);
 	if (pm_runtime_status_suspended(hba->dev) || hba->is_sys_suspended) {
@@ -5958,9 +5969,8 @@ void ufshcd_err_handling_prepare(struct ufs_hba *hba)
 	up_write(&hba->clk_scaling_lock);
 	cancel_work_sync(&hba->eeh_work);
 }
-EXPORT_SYMBOL_GPL(ufshcd_err_handling_prepare);
 
-void ufshcd_err_handling_unprepare(struct ufs_hba *hba)
+static void ufshcd_err_handling_unprepare(struct ufs_hba *hba)
 {
 	ufshcd_scsi_unblock_requests(hba);
 	ufshcd_release(hba);
@@ -5968,7 +5978,6 @@ void ufshcd_err_handling_unprepare(struct ufs_hba *hba)
 		ufshcd_clk_scaling_suspend(hba, false);
 	pm_runtime_put(hba->dev);
 }
-EXPORT_SYMBOL_GPL(ufshcd_err_handling_unprepare);
 
 static inline bool ufshcd_err_handling_should_stop(struct ufs_hba *hba)
 {
@@ -6041,15 +6050,9 @@ static void ufshcd_err_handler(struct work_struct *work)
 	bool err_tm = false;
 	int err = 0, pmc_err;
 	int tag;
-	bool err_handled = false;
 	bool needs_reset = false, needs_restore = false;
 
 	hba = container_of(work, struct ufs_hba, eh_work);
-
-	trace_android_vh_ufs_err_handler(hba, &err_handled);
-
-	if (err_handled)
-		return;
 
 	down(&hba->host_sem);
 	spin_lock_irqsave(hba->host->host_lock, flags);
@@ -6332,7 +6335,8 @@ static irqreturn_t ufshcd_check_errors(struct ufs_hba *hba, u32 intr_status)
 		retval = ufshcd_update_uic_error(hba);
 		if (hba->uic_error) {
 			dev_err(hba->dev,
-			  "Scheduling error handler because of an UIC error\n");
+			  "Scheduling error handler because of an UIC error : 0x%08x\n",
+			  hba->uic_error);
 			queue_eh_work = true;
 		}
 	}
@@ -6356,16 +6360,14 @@ static irqreturn_t ufshcd_check_errors(struct ufs_hba *hba, u32 intr_status)
 		 * update the transfer error masks to sticky bits, let's do this
 		 * irrespective of current ufshcd_state.
 		 */
-		bool skip = false;
 		hba->saved_err |= hba->errors;
 		hba->saved_uic_err |= hba->uic_error;
 
-		trace_android_vh_ufs_err_print_ctrl(hba, &skip);
 		/* dump controller state before resetting */
-		if (!skip &&((hba->saved_err &
+		if ((hba->saved_err &
 		     (INT_FATAL_ERRORS | UFSHCD_UIC_HIBERN8_MASK)) ||
 		    (hba->saved_uic_err &&
-		     (hba->saved_uic_err != UFSHCD_UIC_PA_GENERIC_ERROR)))) {
+		     (hba->saved_uic_err != UFSHCD_UIC_PA_GENERIC_ERROR))) {
 			dev_err(hba->dev, "%s: saved_err 0x%x saved_uic_err 0x%x\n",
 					__func__, hba->saved_err,
 					hba->saved_uic_err);
@@ -6430,7 +6432,6 @@ static irqreturn_t ufshcd_tmc_handler(struct ufs_hba *hba)
 static irqreturn_t ufshcd_sl_intr(struct ufs_hba *hba, u32 intr_status)
 {
 	irqreturn_t retval = IRQ_NONE;
-	bool err_check = false;
 
 	if (intr_status & UFSHCD_UIC_MASK)
 		retval |= ufshcd_uic_cmd_compl(hba, intr_status);
@@ -6441,13 +6442,8 @@ static irqreturn_t ufshcd_sl_intr(struct ufs_hba *hba, u32 intr_status)
 	if (intr_status & UTP_TASK_REQ_COMPL)
 		retval |= ufshcd_tmc_handler(hba);
 
-	if (intr_status & UTP_TRANSFER_REQ_COMPL) {
+	if (intr_status & UTP_TRANSFER_REQ_COMPL)
 		retval |= ufshcd_trc_handler(hba, ufshcd_has_utrlcnr(hba));
-
-		trace_android_vh_ufs_err_check_ctrl(hba, &err_check);
-		if (err_check)
-			ufshcd_check_errors(hba, hba->errors);
-	}
 
 	return retval;
 }
@@ -7066,10 +7062,8 @@ static int ufshcd_abort(struct scsi_cmnd *cmd)
 	outstanding = __test_and_clear_bit(tag, &hba->outstanding_reqs);
 	spin_unlock_irqrestore(host->host_lock, flags);
 
-	if (outstanding) {
+	if (outstanding)
 		ufshcd_release_scsi_cmd(hba, lrbp);
-		trace_android_vh_ufs_abort_success_ctrl(hba, lrbp);
-	}
 
 	err = SUCCESS;
 
@@ -7182,20 +7176,6 @@ static int ufshcd_eh_host_reset_handler(struct scsi_cmnd *cmd)
 	struct ufs_hba *hba;
 
 	hba = shost_priv(cmd->device->host);
-
-	/*
-	 * If runtime pm send SSU and got timeout, scsi_error_handler
-	 * stuck at this function to wait for flush_work(&hba->eh_work).
-	 * And ufshcd_err_handler(eh_work) stuck at wait for runtime pm active.
-	 * Do ufshcd_link_recovery instead schedule eh_work can prevent
-	 * dead lock to happen.
-	 */
-	if (hba->pm_op_in_progress) {
-		if (ufshcd_link_recovery(hba))
-			err = FAILED;
-
-		return err;
-	}
 
 	spin_lock_irqsave(hba->host->host_lock, flags);
 	hba->force_reset = true;
@@ -7811,6 +7791,11 @@ void ufshcd_parse_dev_ref_clk_freq(struct ufs_hba *hba, struct clk *refclk)
 	unsigned long freq;
 
 	freq = clk_get_rate(refclk);
+	if (freq == 0) {
+		dev_warn(hba->dev, " (%s) clk_get_rate - %ld\n", __func__,
+			freq);
+		freq = clk_round_rate(refclk, 19200000);
+	}
 
 	hba->dev_ref_clk_freq =
 		ufs_get_bref_clk_from_hz(freq);
@@ -8092,9 +8077,10 @@ static struct scsi_host_template ufshcd_driver_template = {
 	.eh_device_reset_handler = ufshcd_eh_device_reset_handler,
 	.eh_host_reset_handler   = ufshcd_eh_host_reset_handler,
 	.this_id		= -1,
-	.sg_tablesize		= SG_ALL,
+	.sg_tablesize		= SG_UFS,
 	.cmd_per_lun		= UFSHCD_CMD_PER_LUN,
 	.can_queue		= UFSHCD_CAN_QUEUE,
+	.max_sectors            = UFSHCD_MAX_HW_SECTORS,
 	.max_segment_size	= PRDT_DATA_BYTE_COUNT_MAX,
 	.max_host_blocked	= 1,
 	.track_queue_depth	= 1,
@@ -8561,7 +8547,7 @@ static int ufshcd_set_dev_pwr_mode(struct ufs_hba *hba,
 	 */
 	for (retries = 3; retries > 0; --retries) {
 		ret = scsi_execute(sdp, cmd, DMA_NONE, NULL, 0, NULL, &sshdr,
-				START_STOP_TIMEOUT, 0, 0, RQF_PM, NULL);
+				10 * HZ, 0, 0, RQF_PM, NULL);
 		if (!scsi_status_is_check_condition(ret) ||
 				!scsi_sense_valid(&sshdr) ||
 				sshdr.sense_key != UNIT_ATTENTION)

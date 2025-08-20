@@ -3623,16 +3623,8 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 	void *shadow = NULL;
 
 	if (vmf->flags & FAULT_FLAG_SPECULATIVE) {
-		bool allow_swap_spf = false;
-
-		/* ksm_might_need_to_copy() needs a stable VMA, spf can't be used */
-#ifndef CONFIG_KSM
-		trace_android_vh_do_swap_page_spf(&allow_swap_spf);
-#endif
-		if (!allow_swap_spf) {
-			pte_unmap(vmf->pte);
-			return VM_FAULT_RETRY;
-		}
+		pte_unmap(vmf->pte);
+		return VM_FAULT_RETRY;
 	}
 
 	ret = pte_unmap_same(vmf);
@@ -3649,10 +3641,6 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 
 	entry = pte_to_swp_entry(vmf->orig_pte);
 	if (unlikely(non_swap_entry(entry))) {
-		if (vmf->flags & FAULT_FLAG_SPECULATIVE) {
-			ret = VM_FAULT_RETRY;
-			goto out;
-		}
 		if (is_migration_entry(entry)) {
 			migration_entry_wait(vma->vm_mm, vmf->pmd,
 					     vmf->address);
@@ -3681,7 +3669,7 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 		if ((data_race(si->flags & SWP_SYNCHRONOUS_IO) || skip_swapcache) &&
 		    __swap_count(entry) == 1) {
 			/* skip swapcache */
-			gfp_t flags = GFP_HIGHUSER_MOVABLE;
+			gfp_t flags = GFP_HIGHUSER_MOVABLE | __GFP_CMA;
 
 			trace_android_rvh_set_skip_swapcache_flags(&flags);
 			page = alloc_page_vma(flags, vma, vmf->address);
@@ -4279,7 +4267,7 @@ skip_pmd_checks:
 }
 
 static unsigned long fault_around_bytes __read_mostly =
-	rounddown_pow_of_two(65536);
+	rounddown_pow_of_two(CONFIG_FAULT_AROUND_BYTES);
 
 #ifdef CONFIG_DEBUG_FS
 static int fault_around_bytes_get(void *data, u64 *val)
@@ -4377,8 +4365,6 @@ static vm_fault_t do_read_fault(struct vm_fault *vmf)
 {
 	struct vm_area_struct *vma = vmf->vma;
 	vm_fault_t ret = 0;
-
-	trace_android_vh_tune_fault_around_bytes(&fault_around_bytes);
 
 	/*
 	 * Let's call ->map_pages() first and use ->fault() as fallback
@@ -5042,7 +5028,6 @@ static vm_fault_t ___handle_speculative_fault(struct mm_struct *mm,
 	pud_t pudval;
 	int seq;
 	vm_fault_t ret;
-	bool uffd_missing_sigbus = false;
 
 	/* Clear flags that may lead to release the mmap_sem to retry */
 	flags &= ~(FAULT_FLAG_ALLOW_RETRY|FAULT_FLAG_KILLABLE);
@@ -5055,30 +5040,19 @@ static vm_fault_t ___handle_speculative_fault(struct mm_struct *mm,
 		return VM_FAULT_RETRY;
 	}
 
+	if (!vmf_allows_speculation(&vmf))
+		return VM_FAULT_RETRY;
+
 	vmf.vma_flags = READ_ONCE(vmf.vma->vm_flags);
 	vmf.vma_page_prot = READ_ONCE(vmf.vma->vm_page_prot);
 
 #ifdef CONFIG_USERFAULTFD
-	/*
-	 * Only support SPF for SIGBUS+MISSING userfaults in private anonymous
-	 * VMAs. Rest all should be retried with mmap_lock.
-	 */
+	/* Can't call userland page fault handler in the speculative path */
 	if (unlikely(vmf.vma_flags & __VM_UFFD_FLAGS)) {
-		uffd_missing_sigbus = vma_is_anonymous(vmf.vma) &&
-					(vmf.vma_flags & VM_UFFD_MISSING) &&
-					userfaultfd_using_sigbus(vmf.vma);
-		if (!uffd_missing_sigbus) {
-			trace_spf_vma_notsup(_RET_IP_, vmf.vma, address);
-			return VM_FAULT_RETRY;
-		}
-		/* Not having anon_vma implies that the PTE is missing */
-		if (!vmf.vma->anon_vma)
-			return VM_FAULT_SIGBUS;
+		trace_spf_vma_notsup(_RET_IP_, vmf.vma, address);
+		return VM_FAULT_RETRY;
 	}
 #endif
-
-	if (!vmf_allows_speculation(&vmf))
-		return VM_FAULT_RETRY;
 
 	if (vmf.vma_flags & VM_GROWSDOWN || vmf.vma_flags & VM_GROWSUP) {
 		/*
@@ -5197,9 +5171,6 @@ static vm_fault_t ___handle_speculative_fault(struct mm_struct *mm,
 
 	local_irq_enable();
 
-	if (!vmf.pte && uffd_missing_sigbus)
-		return VM_FAULT_SIGBUS;
-
 	/*
 	 * We need to re-validate the VMA after checking the bounds, otherwise
 	 * we might have a false positive on the bounds.
@@ -5233,12 +5204,7 @@ static vm_fault_t ___handle_speculative_fault(struct mm_struct *mm,
 out_walk:
 	trace_spf_vma_notsup(_RET_IP_, vmf.vma, address);
 	local_irq_enable();
-	/*
-	 * Failing page-table walk is similar to page-missing so give an
-	 * opportunity to SIGBUS+MISSING userfault to handle it before retrying
-	 * with mmap_lock
-	 */
-	return uffd_missing_sigbus ? VM_FAULT_SIGBUS : VM_FAULT_RETRY;
+	return VM_FAULT_RETRY;
 
 out_segv:
 	trace_spf_vma_access(_RET_IP_, vmf.vma, address);
