@@ -1,6 +1,6 @@
 ################################################################################
 ## Inheriting configs from msm waipio
-. ${ROOT_DIR}/common/build.config.msm.waipio
+. ${KERNEL_DIR}/build.config.msm.waipio
 
 ################################################################################
 ## Inheriting configs from samsung
