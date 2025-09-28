@@ -1,13 +1,13 @@
 dtbo-y += gts8wifi_chn_open_w00_r08.dtbo # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
-gts8wifi_chn_open_w00_r08.dtbo-base := ../../../vendor/qcom/waipio.dtb ../../../vendor/qcom/waipio-v2.dtb ../../../vendor/qcom/waipiop.dtb ../../../vendor/qcom/waipiop-v2.dtb # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+gts8wifi_chn_open_w00_r08.dtbo-base := ../../../../../../../../sm8450-devicetrees/qcom/waipio.dtb ../../../../../../../../sm8450-devicetrees/qcom/waipio-v2.dtb ../../../../../../../../sm8450-devicetrees/qcom/waipiop.dtb ../../../../../../../../sm8450-devicetrees/qcom/waipiop-v2.dtb # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 dtbo-y += gts8wifi_chn_open_w00_r07.dtbo # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
-gts8wifi_chn_open_w00_r07.dtbo-base := ../../../vendor/qcom/waipio.dtb ../../../vendor/qcom/waipio-v2.dtb ../../../vendor/qcom/waipiop.dtb ../../../vendor/qcom/waipiop-v2.dtb # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+gts8wifi_chn_open_w00_r07.dtbo-base := ../../../../../../../../sm8450-devicetrees/qcom/waipio.dtb ../../../../../../../../sm8450-devicetrees/qcom/waipio-v2.dtb ../../../../../../../../sm8450-devicetrees/qcom/waipiop.dtb ../../../../../../../../sm8450-devicetrees/qcom/waipiop-v2.dtb # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 dtbo-y += gts8wifi_chn_open_w00_r06.dtbo # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
-gts8wifi_chn_open_w00_r06.dtbo-base := ../../../vendor/qcom/waipio.dtb ../../../vendor/qcom/waipio-v2.dtb ../../../vendor/qcom/waipiop.dtb ../../../vendor/qcom/waipiop-v2.dtb # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+gts8wifi_chn_open_w00_r06.dtbo-base := ../../../../../../../../sm8450-devicetrees/qcom/waipio.dtb ../../../../../../../../sm8450-devicetrees/qcom/waipio-v2.dtb ../../../../../../../../sm8450-devicetrees/qcom/waipiop.dtb ../../../../../../../../sm8450-devicetrees/qcom/waipiop-v2.dtb # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 dtbo-y += gts8wifi_chn_open_w00_r05.dtbo # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
-gts8wifi_chn_open_w00_r05.dtbo-base := ../../../vendor/qcom/waipio.dtb ../../../vendor/qcom/waipio-v2.dtb ../../../vendor/qcom/waipiop.dtb ../../../vendor/qcom/waipiop-v2.dtb # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+gts8wifi_chn_open_w00_r05.dtbo-base := ../../../../../../../../sm8450-devicetrees/qcom/waipio.dtb ../../../../../../../../sm8450-devicetrees/qcom/waipio-v2.dtb ../../../../../../../../sm8450-devicetrees/qcom/waipiop.dtb ../../../../../../../../sm8450-devicetrees/qcom/waipiop-v2.dtb # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 dtbo-y += gts8wifi_chn_open_w00_r04.dtbo # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
-gts8wifi_chn_open_w00_r04.dtbo-base := ../../../vendor/qcom/waipio.dtb ../../../vendor/qcom/waipio-v2.dtb ../../../vendor/qcom/waipiop.dtb ../../../vendor/qcom/waipiop-v2.dtb # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
+gts8wifi_chn_open_w00_r04.dtbo-base := ../../../../../../../../sm8450-devicetrees/qcom/waipio.dtb ../../../../../../../../sm8450-devicetrees/qcom/waipio-v2.dtb ../../../../../../../../sm8450-devicetrees/qcom/waipiop.dtb ../../../../../../../../sm8450-devicetrees/qcom/waipiop-v2.dtb # ADDED BY LEGO AUTOMATICALLY: DO NOT SUBMIT
 # SPDX-License-Identifier: GPL-2.0
 
 #define __sec_dtbo_build
@@ -20,7 +20,7 @@ gts8wifi_chn_open_w00_r04.dtbo-base := ../../../vendor/qcom/waipio.dtb ../../../
 #endef
 #
 # WAIPIO BASE DTB
-#QCOM_DTB := ../../../vendor/qcom
+#QCOM_DTB := ../../../../../../../../sm8450-devicetrees/qcom
 #SEC_WAIPIO_BASE_DTB := $(QCOM_DTB)/waipio.dtb $(QCOM_DTB)/waipiop.dtb
 #
 #ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)

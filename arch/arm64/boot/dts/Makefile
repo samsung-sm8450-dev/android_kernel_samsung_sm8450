@@ -38,6 +38,7 @@ subdir-y += zte
 subdir-y := samsung
 
 else
+	subdir-y += samsung
 	subdir-y += vendor
 endif
 # FIXME: blocked by Samsung to prevent sporadic build failure
