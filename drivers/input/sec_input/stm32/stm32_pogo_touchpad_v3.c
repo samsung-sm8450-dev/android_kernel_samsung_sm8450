@@ -567,13 +567,13 @@ static int stm32_parse_dt(struct device *dev, struct stm32_touchpad_dev *device_
 
 	memset(temp, 0x00, 3);
 
-	ret = of_property_read_u32_array(np, "touchpad,invert", temp, 3);
+/*	ret = of_property_read_u32_array(np, "touchpad,invert", temp, 3);
 	if (!ret) {
 		device_data->dtdata->x_invert = temp[0];
 		device_data->dtdata->y_invert = temp[1];
 		device_data->dtdata->xy_switch = temp[2];
 	}
-
+*/
 	count = of_property_count_u32_elems(np, "touchpad,support_keyboard_model");
 	if (count < 0)
 		count = 1;

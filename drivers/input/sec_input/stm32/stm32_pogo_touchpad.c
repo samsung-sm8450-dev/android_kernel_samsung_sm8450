@@ -604,13 +604,13 @@ static int stm32_parse_dt(struct device *dev,
 
 	memset(temp, 0x00, 3);
 
-	ret = of_property_read_u32_array(np, "touchpad,invert", temp, 3);
+/*	ret = of_property_read_u32_array(np, "touchpad,invert", temp, 3);
 	if (!ret) {
 		device_data->dtdata->x_invert = temp[0];
 		device_data->dtdata->y_invert = temp[1];
 		device_data->dtdata->xy_switch = temp[2];
 	}
-
+*/
 	input_info(true, &device_data->pdev->dev, "max_x:%d, max_y:%d, invert:%d,%d, switch:%d\n",
 			device_data->dtdata->max_x, device_data->dtdata->max_y,
 			device_data->dtdata->x_invert, device_data->dtdata->y_invert,
