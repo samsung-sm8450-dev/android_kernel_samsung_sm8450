@@ -1670,7 +1670,7 @@ static struct nvt_ts_platdata *nvt_ts_parse_dt(struct device *dev)
 		platdata->area_edge = tmp[2];
 	}
 
-	platdata->support_dex = of_property_read_bool(np, "novatek,support_dex_mode");
+	// platdata->support_dex = of_property_read_bool(np, "novatek,support_dex_mode");
 	platdata->enable_settings_aot = of_property_read_bool(np, "novatek,enable_settings_aot");
 	platdata->scanoff_cover_close = of_property_read_bool(np, "novatek,scanoff_when_cover_closed");
 	platdata->enable_sysinput_enabled = of_property_read_bool(np, "novatek,enable_sysinput_enabled");
